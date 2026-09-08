@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { EXPLORER, RPC_URL, buildMemoTx, canonical, chainStatus, listNotarizations, memoText, sha256Hex, type Notarization, type ReceiptFields } from "./cookie";
+import { EXPLORER, RPC_URL, buildMemoTx, canonical, chainStatus, ensureNightlyOnCookieChain, listNotarizations, memoText, sha256Hex, type Notarization, type ReceiptFields } from "./cookie";
 
 type TxState = { phase: "idle" } | { phase: "signing" } | { phase: "sent"; sig: string } | { phase: "confirmed"; sig: string } | { phase: "error"; message: string };
 
@@ -20,6 +20,14 @@ export default function App() {
   const [loadingList, setLoadingList] = useState(false);
   const [status, setStatus] = useState<{ slot: number; version: string; blockHeight: number } | null>(null);
   const [verify, setVerify] = useState<{ hash: string; hit: Notarization | null } | null>(null);
+  const [net, setNet] = useState<string>("");
+
+  async function switchNetwork() {
+    try {
+      const r = await ensureNightlyOnCookieChain();
+      setNet(r === "switched" ? "Nightly asked to switch to Cookie Chain; confirm in the popup." : r === "already" ? "Nightly is on Cookie Chain." : "This wallet has no network switch; set the RPC to " + RPC_URL + " in its settings.");
+    } catch (e: any) { setNet("switch failed: " + (e?.message ?? String(e))); }
+  }
 
   // Hash follows the fields (or the uploaded file) so the user always sees what will be written.
   useEffect(() => {
@@ -119,6 +127,7 @@ export default function App() {
           <h2>2. Notarize on Cookie Chain</h2>
           <p>Wallet: {publicKey ? <code>{publicKey.toBase58()}</code> : <em>not connected (Nightly is detected automatically)</em>}</p>
           <p>Balance: {balance === null ? "–" : `${balance.toFixed(4)} COOK`}</p>
+          <p><button className="ghost" onClick={switchNetwork} disabled={!connected}>Point Nightly at Cookie Chain</button> {net && <small> {net}</small>}</p>
           <button disabled={!connected || !hash || tx.phase === "signing" || tx.phase === "sent"} onClick={notarize}>
             {tx.phase === "signing" ? "waiting for signature…" : tx.phase === "sent" ? "confirming…" : "Write memo transaction"}
           </button>

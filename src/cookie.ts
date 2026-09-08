@@ -87,3 +87,13 @@ export async function chainStatus(): Promise<{ slot: number; version: string; bl
   const [slot, v, blockHeight] = await Promise.all([connection.getSlot("confirmed"), connection.getVersion(), connection.getBlockHeight("confirmed")]);
   return { slot, version: (v as any)["solana-core"] ?? JSON.stringify(v), blockHeight };
 }
+
+/** Nightly exposes a network switch for SVM chains; ask it to point at Cookie Chain (the user confirms in the popup). */
+export async function ensureNightlyOnCookieChain(): Promise<"switched" | "already" | "unsupported"> {
+  const nightly = (window as any).nightly?.solana;
+  if (!nightly || typeof nightly.changeNetwork !== "function") return "unsupported";
+  const genesis = await connection.getGenesisHash();
+  if (nightly.genesisHash === genesis) return "already";
+  await nightly.changeNetwork({ genesisHash: genesis, url: RPC_URL });
+  return "switched";
+}
