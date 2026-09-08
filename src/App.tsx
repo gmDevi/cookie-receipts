@@ -10,7 +10,7 @@ const EMPTY: ReceiptFields = { merchant: "", date: new Date().toISOString().slic
 
 export default function App() {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction, connected } = useWallet();
+  const { publicKey, sendTransaction, signTransaction, connected } = useWallet();
   const [fields, setFields] = useState<ReceiptFields>(EMPTY);
   const [hash, setHash] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
@@ -58,7 +58,16 @@ export default function App() {
     try {
       const text = memoText(hash, fileName ? undefined : fields);
       const t = await buildMemoTx(publicKey, text);
-      const sig = await sendTransaction(t, connection);
+      // Sign in the wallet, submit through the Cookie Chain RPC ourselves: a wallet whose own RPC points at Solana
+      // mainnet would otherwise send the transaction to the wrong chain. Fall back to sendTransaction if the wallet
+      // cannot sign-only.
+      let sig: string;
+      if (signTransaction) {
+        const signed = await signTransaction(t);
+        sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
+      } else {
+        sig = await sendTransaction(t, connection);
+      }
       setTx({ phase: "sent", sig });
       await connection.confirmTransaction({ signature: sig, blockhash: t.recentBlockhash!, lastValidBlockHeight: t.lastValidBlockHeight! }, "confirmed");
       setTx({ phase: "confirmed", sig });
