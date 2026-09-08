@@ -3,6 +3,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { EXPLORER, RPC_URL, buildMemoTx, canonical, chainStatus, ensureNightlyOnCookieChain, listNotarizations, memoText, sha256Hex, type Notarization, type ReceiptFields } from "./cookie";
+import { ledgerToReceipts, type LedgerRow } from "./ledgerCsv";
 
 type TxState = { phase: "idle" } | { phase: "signing" } | { phase: "sent"; sig: string } | { phase: "confirmed"; sig: string } | { phase: "error"; message: string };
 
@@ -21,6 +22,9 @@ export default function App() {
   const [status, setStatus] = useState<{ slot: number; version: string; blockHeight: number } | null>(null);
   const [verify, setVerify] = useState<{ hash: string; hit: Notarization | null } | null>(null);
   const [net, setNet] = useState<string>("");
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  const [ledgerHashes, setLedgerHashes] = useState<string[]>([]);
+  const [ledgerNote, setLedgerNote] = useState<string>("");
 
   async function switchNetwork() {
     try {
@@ -94,6 +98,24 @@ export default function App() {
 
   const set = (k: keyof ReceiptFields) => (e: React.ChangeEvent<HTMLInputElement>) => { setFileName(""); setFields({ ...fields, [k]: e.target.value }); };
 
+  // Ledger import: a ledger.csv from the Mermail expense-ledger skill becomes a queue of receipts, each hashed exactly
+  // like the form above, so one file feeds a batch of notarizations (one signature per receipt).
+  async function onLedgerFile(ev: React.ChangeEvent<HTMLInputElement>) {
+    const f = ev.target.files?.[0];
+    if (!f) { setLedger([]); setLedgerHashes([]); return; }
+    const rows = ledgerToReceipts(await f.text());
+    setLedger(rows);
+    setLedgerHashes(await Promise.all(rows.map((r) => sha256Hex(canonical(r)))));
+    setLedgerNote(rows.length ? `${rows.length} receipts from ${f.name}` : `${f.name} has no date/merchant/currency/amount columns`);
+  }
+  function loadRow(i: number) {
+    const r = ledger[i]; if (!r) return;
+    setFileName(""); setTx({ phase: "idle" }); setVerify(null);
+    setFields({ merchant: r.merchant, date: r.date, currency: r.currency, amount: r.amount, reference: r.reference });
+  }
+  const notarized = (i: number) => items.some((n) => n.hash === ledgerHashes[i]);
+  const nextRow = ledger.findIndex((_, i) => !notarized(i));
+
   return (
     <div className="wrap">
       <header>
@@ -115,6 +137,20 @@ export default function App() {
           </div>
           <label>Reference <input value={fields.reference} onChange={set("reference")} placeholder="order / invoice id (optional)" /></label>
           <div className="or">or hash a file instead (PDF, image, CSV row export): <input type="file" onChange={onFile} /></div>
+          <div className="or">or import a <code>ledger.csv</code> from the Mermail expense-ledger skill: <input type="file" accept=".csv,text/csv" onChange={onLedgerFile} /></div>
+          {ledgerNote && <small>{ledgerNote}{ledger.length > 0 && ` · ${ledger.filter((_, i) => notarized(i)).length} already notarized by this wallet`}</small>}
+          {ledger.length > 0 && (
+            <div className="ledger">
+              <p><button className="ghost" onClick={() => loadRow(nextRow)} disabled={nextRow < 0}>{nextRow < 0 ? "all notarized" : `load next (${nextRow + 1} of ${ledger.length})`}</button></p>
+              <table>
+                <tbody>{ledger.map((r, i) => (
+                  <tr key={i}>
+                    <td>{notarized(i) ? "✓" : ""}</td><td>{r.date}</td><td>{r.merchant}</td><td>{r.amount} {r.currency}</td>
+                    <td><button className="ghost" onClick={() => loadRow(i)}>load</button></td>
+                  </tr>))}</tbody>
+              </table>
+            </div>
+          )}
           <div className="hash">
             <span>SHA-256</span>
             <code>{hash || "fill the fields or choose a file"}</code>
